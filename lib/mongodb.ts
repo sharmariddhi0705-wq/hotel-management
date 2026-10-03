@@ -28,16 +28,21 @@ if (!global._mongooseCache) {
 }
 
 export async function connectToDatabase(): Promise<Mongoose> {
-  /**
-   * Read at call time, not at module scope: scripts load their environment with
-   * `loadEnvConfig` at runtime, and ES module imports are hoisted above that
-   * call — a top-level read would capture an undefined value.
-   */
-  const MONGODB_URI = process.env.MONGODB_URI;
+  const username = process.env.MONGODB_USERNAME;
+  const password = process.env.MONGODB_PASSWORD;
+  const cluster = process.env.MONGODB_CLUSTER;
+  const dbName = process.env.MONGODB_DB_NAME || "hotel-management";
+
+  // Use MONGODB_URI if provided, or build it dynamically using encodeURIComponent
+  const MONGODB_URI =
+    process.env.MONGODB_URI ||
+    (username && password && cluster
+      ? `mongodb+srv://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${cluster}/${dbName}?retryWrites=true&w=majority`
+      : null);
 
   if (!MONGODB_URI) {
     throw new Error(
-      "MONGODB_URI is not defined. Copy .env.example to .env.local and set it.",
+      "Database credentials missing. Set MONGODB_URI or MONGODB_USERNAME/MONGODB_PASSWORD in .env.local",
     );
   }
 
@@ -47,13 +52,11 @@ export async function connectToDatabase(): Promise<Mongoose> {
     cached.promise = mongoose
       .connect(MONGODB_URI, {
         bufferCommands: false,
-        // Fail fast instead of hanging a request for 30s when Mongo is down.
         serverSelectionTimeoutMS: 10_000,
         maxPoolSize: 10,
       })
       .then((m) => m)
       .catch((error) => {
-        // Drop the rejected promise so the next request retries the connection.
         cached.promise = null;
         throw error;
       });
