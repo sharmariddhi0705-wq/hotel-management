@@ -52,18 +52,60 @@ export async function connectToDatabase(): Promise<Mongoose> {
     cached.promise = mongoose
       .connect(MONGODB_URI, {
         bufferCommands: false,
-        serverSelectionTimeoutMS: 10_000,
+        /**
+         * Passed explicitly rather than relying on the URI path. An Atlas
+         * connection string copied from the dashboard ends at the host
+         * (`…mongodb.net`) with no database, and Mongoose would silently use
+         * `test` — so the app would appear to work while reading and writing
+         * the wrong database.
+         */
+        dbName,
+        /**
+         * Below Vercel's 10s serverless limit, so a blocked connection returns
+         * the app's own JSON error instead of a platform timeout.
+         */
+        serverSelectionTimeoutMS: 8_000,
         maxPoolSize: 10,
       })
       .then((m) => m)
-      .catch((error) => {
+      .catch((error: unknown) => {
+        // Drop the rejected promise so the next request retries the connection.
         cached.promise = null;
+        logConnectionDiagnostic(error, MONGODB_URI);
         throw error;
       });
   }
 
   cached.conn = await cached.promise;
   return cached.conn;
+}
+
+/**
+ * Explains a failed connection in the server log.
+ *
+ * Server selection failures are almost always environmental rather than a bug,
+ * and the three causes below account for nearly all of them. The client only
+ * ever sees the generic "cannot reach the database" message; this detail stays
+ * server-side.
+ */
+function logConnectionDiagnostic(error: unknown, uri: string): void {
+  const name = (error as { name?: string })?.name ?? "";
+  if (name !== "MongooseServerSelectionError" && name !== "MongoServerSelectionError") {
+    return;
+  }
+
+  const redacted = uri.replace(/:\/\/([^:]+):([^@]+)@/, "://$1:***@");
+  console.error(
+    [
+      "[mongodb] Could not reach the cluster.",
+      `  URI        : ${redacted}`,
+      "  Check, in order:",
+      "   1. Atlas > Network Access allows this server's IP.",
+      "      Serverless hosts (Vercel, Netlify) use dynamic IPs, so they need 0.0.0.0/0.",
+      "   2. Atlas > Database Access has this user with read/write on the database.",
+      "   3. The password is URL-encoded if it contains @ : / ? # [ ] or %.",
+    ].join("\n"),
+  );
 }
 
 /** Closes the connection. Used by scripts (seed) so the process can exit. */

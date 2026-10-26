@@ -378,6 +378,27 @@ npm run build
 npm start
 ```
 
+### Deploying to Vercel
+
+Add the variables under **Settings → Environment Variables**, then — this is the
+step that catches people out:
+
+**Atlas → Network Access → Add IP Address → Allow access from anywhere
+(`0.0.0.0/0`).**
+
+Vercel's serverless functions get a different outbound IP on every invocation,
+so an allowlist containing only your own IP blocks the deployment entirely. The
+symptom is every page showing *"Cannot reach the database right now"* while the
+connection string is perfectly valid. Because the network is no longer the
+barrier, keep the database user scoped to just this database.
+
+Also set `NEXTAUTH_URL` to the deployed URL (not `localhost`), and seed the
+Atlas database once so an administrator account exists:
+
+```bash
+MONGODB_URI="<your-atlas-uri>" npm run seed
+```
+
 On Vercel, add the same variables under *Settings → Environment Variables*; the
 build and start commands are detected automatically. Middleware runs on the Edge
 runtime and deliberately imports no database code, so it deploys as-is.
@@ -403,5 +424,6 @@ and configure an email provider for password resets (see below).
   range-exclusion constraint. Under extreme concurrency on a replica set, wrap
   the availability check and the insert in a transaction for a stronger guarantee.
 - **Room images** are stored as URLs; no upload pipeline is included.
-#   h o t e l - m a n a g e m e n t  
+#   h o t e l - m a n a g e m e n t 
+ 
  
